@@ -2559,12 +2559,13 @@
   #define INTERPOLATE      true
 
   #define UNIFIED_MICROSTEPS 16
+  #define TMC5160_RSENSE 0.075
 
   #if AXIS_IS_TMC(X)
     #define X_CURRENT       1200        // (mA) RMS current. Multiply by 1.414 for peak current.
     #define X_CURRENT_HOME  X_CURRENT  // (mA) RMS current for sensorless homing
     #define X_MICROSTEPS     UNIFIED_MICROSTEPS        // 0..256
-    #define X_RSENSE          0.11
+    #define X_RSENSE          TMC5160_RSENSE
     #define X_CHAIN_POS      -1        // -1..0: Not chained. 1: MCU MOSI connected. 2: Next in chain, ...
     //#define X_INTERPOLATE  true      // Enable to override 'INTERPOLATE' for the X axis
   #endif
@@ -2582,7 +2583,7 @@
     #define Y_CURRENT       1200
     #define Y_CURRENT_HOME  Y_CURRENT
     #define Y_MICROSTEPS     UNIFIED_MICROSTEPS
-    #define Y_RSENSE          0.11
+    #define Y_RSENSE          TMC5160_RSENSE
     #define Y_CHAIN_POS      -1
     //#define Y_INTERPOLATE  true
   #endif
@@ -2591,7 +2592,7 @@
     #define Y2_CURRENT      1200
     #define Y2_CURRENT_HOME Y2_CURRENT
     #define Y2_MICROSTEPS    Y_MICROSTEPS
-    #define Y2_RSENSE         0.11
+    #define Y2_RSENSE         TMC5160_RSENSE
     #define Y2_CHAIN_POS     -1
     #define Y2_INTERPOLATE true
   #endif
@@ -2600,7 +2601,7 @@
     #define Z_CURRENT       1200
     #define Z_CURRENT_HOME  Z_CURRENT
     #define Z_MICROSTEPS     UNIFIED_MICROSTEPS
-    #define Z_RSENSE          0.11
+    #define Z_RSENSE          TMC5160_RSENSE
     #define Z_CHAIN_POS      -1
     //#define Z_INTERPOLATE  true
   #endif
@@ -2662,7 +2663,7 @@
   #if AXIS_IS_TMC(E0)
     #define E0_CURRENT      800
     #define E0_MICROSTEPS    UNIFIED_MICROSTEPS
-    #define E0_RSENSE         0.11
+    #define E0_RSENSE         TMC5160_RSENSE
     #define E0_CHAIN_POS     -1
     //#define E0_INTERPOLATE true
   #endif
