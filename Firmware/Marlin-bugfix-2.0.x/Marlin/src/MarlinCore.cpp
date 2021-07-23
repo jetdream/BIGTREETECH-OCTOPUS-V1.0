@@ -1077,6 +1077,7 @@ inline void tmc_standby_setup() {
  *  - Set Marlin to RUNNING State
  */
 void setup() {
+
   #ifdef BOARD_PREINIT
     BOARD_PREINIT(); // Low-level init (before serial init)
   #endif

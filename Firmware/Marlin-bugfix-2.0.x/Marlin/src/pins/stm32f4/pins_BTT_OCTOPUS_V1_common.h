@@ -172,11 +172,11 @@
   #define Z_CS_PIN                          PC6
 #endif
 
-#define Z2_STEP_PIN                         PG4   // MOTOR 3
-#define Z2_DIR_PIN                          PC1
-#define Z2_ENABLE_PIN                       PA0
-#ifndef Z2_CS_PIN
-  #define Z2_CS_PIN                         PC7
+#define Y2_STEP_PIN                         PG4   // MOTOR 3
+#define Y2_DIR_PIN                          PC1
+#define Y2_ENABLE_PIN                       PA0
+#ifndef Y2_CS_PIN
+  #define Y2_CS_PIN                         PC7
 #endif
 
 #define E0_STEP_PIN                         PF9   // MOTOR 4
@@ -230,9 +230,9 @@
 #define HEATER_2_PIN                        PB10  // Heater2
 #define HEATER_3_PIN                        PB11  // Heater3
 
-#define FAN_PIN                             PA8   // Fan0
-#define FAN1_PIN                            PE5   // Fan1
-#define FAN2_PIN                            PD12  // Fan2
+//#define FAN_PIN                             PA8   // Fan0  // PS: Disabled to make it AUTO_FAN
+//#define FAN1_PIN                            PE5   // Fan1
+//#define FAN2_PIN                            PD12  // Fan2
 #define FAN3_PIN                            PD13  // Fan3
 #define FAN4_PIN                            PD14  // Fan4
 #define FAN5_PIN                            PD15  // Fan5
@@ -469,6 +469,9 @@
           #define RGB_LED_B_PIN      EXP1_03_PIN
         #endif
       #elif ENABLED(FYSETC_MINI_12864_2_1)
+        #ifdef NEOPIXEL_PIN
+          #undef NEOPIXEL_PIN
+        #endif  
         #define NEOPIXEL_PIN         EXP1_05_PIN
       #endif
     #endif // !FYSETC_MINI_12864
