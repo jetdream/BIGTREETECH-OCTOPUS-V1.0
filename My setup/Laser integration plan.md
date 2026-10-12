@@ -16,9 +16,9 @@ Reference manuals in this folder:
 | # | Topic | Decision |
 |---|---|---|
 | D1 | Power control method | **PWM 20 kHz into PSU `IN`**. `TL` is a clean fire/enable signal. No analog (the board has no usable 0–5 V DAC) |
-| D2 | Marlin version | **Upgrade to Marlin 2.1.x first**, then add the laser |
-| D3 | Inline power | **Yes**: power carried in motion (`G1 … S…`), M3 constant / M4 dynamic modes |
-| D4 | G-code software | **LightBurn** (Marlin device profile) |
+| D2 | Marlin version | **Upgrade to upstream Marlin 2.1.2.8** (latest stable, June 2026) from `MarlinFirmware/Marlin`, then add the laser. Board `BOARD_BTT_OCTOPUS_V1_0`, env `STM32F446ZE_btt`. See §3.1 |
+| D3 | Inline power | **Yes**: `M3 I` continuous inline mode + `LASER_POWER_TRAP`. **Not `M4 I`**: in Marlin 2.1 it derives power from feedrate (F>>8) and ignores S |
+| D4 | G-code software | **LightBurn**: Marlin device, "Inline" laser mode, start `M3 I`, end `M5 I` |
 | D5 | Aux outputs | **Air assist on FAN4 (M8/M9)**, **fume extraction on FAN5 (M10/M11)**, each via relay/SSR |
 | D6 | Tube max current | Unknown, so **cap S255 at 16 mA** in hardware (R2), measured with an ammeter |
 | D7 | Ammeter | **To be added** in the tube cathode line (0–30 mA) |
@@ -49,11 +49,18 @@ Still open (not blocking): the diode module's model and its maximum PWM frequenc
 
 ### Octopus fan outputs
 
-- Every fan port is a low-side MOSFET (ES3400), driven through a 74HCT365 buffer.
-- Each port has an SS54 flyback diode from `FANx−` to the `V_FANx` jumper rail.
-- So `FANx−` can only be **pulled to GND or left floating**; it never drives a voltage.
-- At boot and reset all MOSFETs are off, so `FANx−` floats.
-- With the voltage jumper fitted and the board unpowered, the diode can drag an externally pulled-up line toward 0 V. **Remove the voltage jumper on any fan port used for laser signals** (FAN1, FAN2).
+Verified against BTT's **corrected** schematic `Hardware/BIGTREETECH Octopus - SCH.pdf` (dated 2021-09-18). In 2024 BTT replaced the original `BIGTREETECH Octopus.pdf` that is still in this fork, as "wrong sch".
+
+- **Circuit:** every fan port is a low-side MOSFET (ES3400).
+  - It is driven through a 74HCT365 buffer, with 4.7 k pull-downs on the buffer inputs, then a 10 Ω series resistor and a 12 k gate pull-down.
+- **Boot:** all fan MOSFETs are **off** during boot and reset, so `FANx−` floats.
+- **Output:** `FANx−` can only be **pulled to GND or left floating**; it never drives a voltage.
+- **Paths back to the `V_FANx` jumper rail:**
+  - an SS54 flyback diode (`FANx−` → `V_FANx`);
+  - a **4.7 k resistor + green LED from `V_FANx` to `FANx−`**. This is a built-in pull-up to whatever voltage the jumper selects.
+- **So the voltage jumper on FAN1 and FAN2 must be removed (mandatory):**
+  - jumper on 24 V or 12 V: the LED path pushes `IN` above its 5 V limit;
+  - jumper fitted while the board is unpowered: the diode/LED path drags `TL` toward 0 V, so the laser could fire.
 
 ### Hardware timers
 
@@ -62,11 +69,16 @@ Still open (not blocking): the diode module's model and its maximum PWM frequenc
 | FAN0 | PA8 | TIM1 | E0 auto-fan (extruder) |
 | FAN1 | PE5 | **TIM9** | Only user of TIM9, so it can run its own 20 kHz |
 | FAN2 | PD12 | TIM4 | Used as a digital pin only (enable) |
-| FAN3 | PD13 | TIM4 | Controller fan (its `analogWrite` resets TIM4 to 1 kHz every 2.5 s) |
+| FAN3 | PD13 | TIM4 | Controller fan |
 | FAN4 | PD14 | TIM4 | Digital pin only (air assist) |
 | FAN5 | PD15 | TIM4 | Digital pin only (fume extraction) |
 
-Marlin 2.0.9 uses TIM10 (stepper), TIM14 (temperature), TIM5 (servo) and TIM6 (tone). **Re-check this on 2.1.x.**
+- **Timer use in Marlin 2.1.2.8 on the Octopus:**
+  - stepper on **TIM8** (the Octopus pins file sets `STEP_TIMER 8`; it was TIM10 in the old fork);
+  - temperature on TIM14, servo on TIM5, tone on TIM6;
+  - **TIM9 is free.**
+- **Frequency handling:** in 2.1.x the STM32 HAL keeps the PWM frequency per timer. The 2.0.9 problem, where the controller fan's `analogWrite` reset TIM4 to 1 kHz every 2.5 s, is gone. FAN1/TIM9 is still the right choice: it has its own timer, separate from `FAST_PWM_FAN` on TIM4.
+- **Fan port budget:** after this plan, all six fan ports are used (E0 hotend fan, laser PWM, laser enable, controller fan, air assist, exhaust). **No M106 part-cooling fan output is left.** If you need one later, move the controller fan to an always-on header.
 
 ---
 
@@ -143,14 +155,35 @@ Octopus GND ──────────────── diode GND (and 12 V
 
 ## 3. Firmware
 
-### 3.1 Port to Marlin 2.1.x (D2)
+### 3.1 Port to Marlin 2.1.2.8 (D2)
 
-Put the new firmware next to the old one: `Firmware/Marlin-2.1.x/`. The old `Marlin-bugfix-2.0.x` stays as a rollback.
+**Where the Octopus support comes from:**
+- Octopus support has been native in upstream Marlin since mid-2021. This fork's `Marlin-bugfix-2.0.x` is simply upstream `bugfix-2.0.x` from 2021-07-07, snapshotted by BTT.
+- BTT's own repository has since moved only to `bugfix-2.0.9.3.x`, not 2.1. So take the source from upstream **`MarlinFirmware/Marlin`, tag `2.1.2.8`**.
+- The Spindle/Laser section of `bugfix-2.1.x` is functionally identical, so the stable release is enough.
+- `MarlinFirmware/Configurations` has **no ready Octopus machine config**, only a `linear_axes/Octopus 8 LINEAR_AXES` demo. Start from the default `Configuration.h`/`Configuration_adv.h` and apply the settings below.
 
-Settings to carry over from the current fork (diff against BTT stock):
+Put it next to the old firmware: `Firmware/Marlin-2.1.2.8/`. The old `Marlin-bugfix-2.0.x` stays as a rollback.
+
+**Upstream 2.1.2.8 versus this fork's patches:**
+
+| Fork patch (2.0.x) | In upstream 2.1.2.8 |
+|---|---|
+| Board `BTT_OCTOPUS_V1_1` | Use **`BOARD_BTT_OCTOPUS_V1_0`** (your board). V1.0 and V1.1 differ only by an LCD serial-port default |
+| Env `BIGTREE_OCTOPUS_V1` | Renamed **`STM32F446ZE_btt`**. Same 0x8000 offset, so SD-card flashing and the bootloader are unchanged |
+| MOTOR 3: Z2 pins renamed to Y2 in the pins file | **No pins patch needed.** Upstream only auto-assigns Y2 pins if they are undefined, so define them in `Configuration.h`: `Y2_STEP_PIN PG4`, `Y2_DIR_PIN PC1`, `Y2_ENABLE_PIN PA0`, `Y2_CS_PIN PC7` |
+| `FAN_PIN` (FAN0) commented out so it can be the E0 auto-fan | **Not needed.** 2.1 automatically excludes a fan pin that equals `E0_AUTO_FAN_PIN` from M106; the same applies to `CONTROLLER_FAN_PIN` (FAN3) |
+| FAN1/FAN2 commented out | **Still needed, now also FAN4/FAN5**: see §3.2. This is the **only remaining source patch** |
+| `#undef NEOPIXEL_PIN` for FYSETC 2.1 | **Not needed.** Upstream sets `NEOPIXEL_PIN` for FYSETC_MINI_12864_2_1 and keeps the board RGB header separate (`BOARD_NEOPIXEL_PIN`) |
+| `marlinui_DOGM.cpp` contrast forced to 255 | **Don't patch code.** Set `LCD_CONTRAST_INIT` in config or use `M250` |
+| EEPROM 32 KB definition | Upstream uses 4 KB software-I2C (AT24C32 is 4 KB). EEPROM is reset anyway (§4) |
+| TMC software-SPI pins | Upstream defines `TMC_SPI_*` pins; nothing to do |
+
+**Settings to carry over** (option names may differ slightly in 2.1; the build's sanity checks flag renamed options):
 
 - **`Configuration.h`**
-  - board `BTT_OCTOPUS_V1_1`, `SERIAL_PORT 1`, no USB `SERIAL_PORT_2`
+  - board `BTT_OCTOPUS_V1_0`, `SERIAL_PORT 1`, no USB `SERIAL_PORT_2`
+  - Y2 pins on MOTOR 3 (see table)
   - 1 extruder, TEMP_SENSOR_0 = 1, others 0, `BED_MAXTEMP 100`
   - PID 19.00 / 1.29 / 70.09, `EXTRUDE_MAXLENGTH 120`
   - TMC5160 on X, Y, Y2, Z, E0; `ENDSTOP_NOISE_THRESHOLD 3`
@@ -167,33 +200,53 @@ Settings to carry over from the current fork (diff against BTT stock):
   - TMC: 1200 mA on X/Y/Y2/Z, 800 mA on E0, Rsense 0.075, 16 microsteps, Y2 interpolate
   - spreadCycle on XY, `CHOPPER_DEFAULT_24V`
   - `DIRECT_PIN_CONTROL`, `PINS_DEBUGGING`
-- **Pins file (`pins_BTT_OCTOPUS_V1_common.h`)**
-  - MOTOR 3 is used as Y2: the fork renamed its Z2 pins to Y2
-  - FAN0/1/2 removed from the M106 fan list
-  - NeoPixel pin override for the FYSETC 2.1 display
-  - In 2.1.x, prefer doing these from the config (`Y2_*_PIN`, `FAN*_PIN` overrides) rather than editing the pins file, if the pins file allows `#ifndef` overrides.
-- **`lcd/dogm/marlinui_DOGM.cpp`**: contrast forced to 255. In 2.1.x, set `LCD_CONTRAST_INIT`/`MAX` in config instead.
+- **Pins file:** see the table above. The only remaining patch is the fan-pin change in §3.2.
 
-Bring the machine up as a printer/mill on 2.1.x first (homing, moves, extruder, temps) **before** enabling the laser.
+Bring the machine up as a printer/mill on 2.1.2.8 first (homing, moves, extruder, temps) **before** enabling the laser.
 
-### 3.2 Laser settings (`Configuration_adv.h`, Spindle & Laser section)
+### 3.2 Laser settings (Marlin 2.1.2.8)
 
-Option names below are from 2.0.9. **Map them to the 2.1.x names at port time**: for example `SPINDLE_LASER_PWM` became `SPINDLE_LASER_USE_PWM`, and inline/dynamic power is restructured.
+**Pins patch: the one source change.**
+
+- **Why it's needed:**
+  - Upstream `pins_BTT_OCTOPUS_V1_common.h` defines `FAN0_PIN`…`FAN5_PIN` unconditionally.
+  - With the laser PWM on PE5, the build stops with `#error "SPINDLE_LASER_PWM_PIN conflicts with FAN1_PIN."`.
+  - FAN2, FAN4 and FAN5 would also be initialised and driven as M106 fans, fighting the laser-enable and air outputs.
+- **The patch:** wrap each fan define in `#ifndef`, so the config can switch the port off:
 
 ```cpp
+// pins_BTT_OCTOPUS_V1_common.h (patch: make fan pins overridable)
+#ifndef FAN0_PIN
+  #define FAN0_PIN                          PA8   // Fan0
+#endif
+#ifndef FAN1_PIN
+  #define FAN1_PIN                          PE5   // Fan1
+#endif
+// … same for FAN2_PIN … FAN5_PIN
+```
+
+**`Configuration_adv.h`:**
+
+```cpp
+// Release fan ports used by the laser and air outputs (needs the #ifndef patch above)
+#define FAN1_PIN -1                          // FAN1 → laser PWM
+#define FAN2_PIN -1                          // FAN2 → laser enable
+#define FAN4_PIN -1                          // FAN4 → air assist
+#define FAN5_PIN -1                          // FAN5 → fume extraction
+
 #define LASER_FEATURE
-#define SPINDLE_LASER_ENA_PIN       PD12    // FAN2- → PSU TL / diode gate
+#define SPINDLE_LASER_ENA_PIN       PD12    // FAN2- → PSU TL / diode gate (2.1: pin defined here, not in pins file)
 #define SPINDLE_LASER_PWM_PIN       PE5     // FAN1- → PSU IN / diode TTL (TIM9, own timer)
 #define SPINDLE_LASER_ACTIVE_STATE  HIGH    // pin HIGH → MOSFET on → TL low → fire
-#define SPINDLE_LASER_USE_PWM               // (2.0.9: SPINDLE_LASER_PWM true)
+#define SPINDLE_LASER_USE_PWM               // 2.0.9 name was SPINDLE_LASER_PWM
 #define SPINDLE_LASER_PWM_INVERT    true    // MOSFET + pull-up inverts the signal
-#define SPINDLE_LASER_FREQUENCY     20000   // PSU manual: IN PWM ≥ 20 kHz
+#define SPINDLE_LASER_FREQUENCY     20000   // PSU manual: IN PWM ≥ 20 kHz (STM32 HAL supports it)
 #define CUTTER_POWER_UNIT           PWM255  // LightBurn S-value max = 255
 
-// Inline power (D3): in 2.1.x, M3 = constant inline, M4 = dynamic inline,
-// power taken from S on G1/G2/G3. Enable the 2.1.x equivalents of:
-//   LASER_POWER_INLINE, LASER_POWER_INLINE_TRAPEZOID, LASER_MOVE_POWER
-// and consider LASER_SAFETY_TIMEOUT_MS (turns the laser off if motion stalls).
+#define LASER_SAFETY_TIMEOUT_MS     1000    // default; laser off if no motion for 1 s
+#define LASER_POWER_SYNC                    // M3 S-values queued with motion, no planner stall
+#define LASER_POWER_TRAP                    // scale power with accel/decel (replaces 2.0.9 TRAPEZOID)
+// SPEED_POWER_MIN: set to the CO2 ignition level found in §5 step 6, so TRAP never drops below it
 
 #define AIR_ASSIST                          // D5
 #define AIR_ASSIST_ACTIVE           HIGH
@@ -203,13 +256,24 @@ Option names below are from 2.0.9. **Map them to the 2.1.x names at port time**:
 #define AIR_EVACUATION_PIN          PD15    // FAN5
 ```
 
-Also remove FAN4 and FAN5 from the M106 fan list, so Marlin does not initialise them as fans.
+**What changed from 2.0.9:**
+
+- **Removed options:** `LASER_POWER_INLINE`, `LASER_POWER_INLINE_TRAPEZOID` and `LASER_MOVE_POWER` no longer exist. Inline power is built in and switched on at run time:
+  - `M3 I`: continuous inline. `G1 … S…` sets power per move.
+  - `M5 I`: leaves inline mode.
+- **Don't use `M4 I`:** in 2.1 it computes power from the **feedrate** (`F >> 8`), ignores S, and is marked experimental in the code.
+- **Optional, new in 2.1: `LASER_COOLANT_FLOW_METER`** with `FLOWMETER_SAFETY`.
+  - Hardware: a Hall-effect flow sensor on a free interrupt-capable input (e.g. a spare endstop or DET pin).
+  - Marlin then refuses to fire below a minimum flow (L/min).
+  - It works *in addition to* the WP flow switch, and shows the flow rate on the display.
 
 ### 3.3 LightBurn device settings (D4)
 
-- **Device type:** Marlin. **S-value max:** 255.
-- **Check a generated file** before the first job: power should be on `G1 … S…` (inline), with `M3`/`M4` and `M5` around jobs.
+- **Device:** type Marlin. **Laser mode: Inline** (not M03/M05). **S-value max:** 255.
+- **Start G-code:** `M3 I`. **End G-code:** `M5 I`.
+- **Check a generated file** before the first job: power must be on `G1 … S…`, with no `M4`.
 - **Air assist:** LightBurn's per-layer air assist emits M8/M9, if enabled in device settings.
+- **Framing caveat:** LightBurn users report that in Inline mode, framing with "laser on" doesn't fire until a job has run. Frame with the laser off, or with a low-power pointer.
 - **Two device profiles,** with their own min/max power and speeds:
   - **CO2:** min power just above tube ignition.
   - **Diode.**
@@ -219,7 +283,7 @@ Also remove FAN4 and FAN5 from the M106 fan list, so Marlin does not initialise 
 ## 4. Build and flash
 
 1. Before flashing, connect to the current firmware and send `M503`. Save the output to `My setup/M503 backup <date>.txt` (D11).
-2. Build env `BIGTREE_OCTOPUS_V1` (or the 2.1.x env name for the Octopus V1.1 board) in PlatformIO.
+2. Build env **`STM32F446ZE_btt`** in PlatformIO. Set `default_envs` in `platformio.ini`; the old `BIGTREE_OCTOPUS_V1` name is gone in 2.1.
 3. Copy `firmware.bin` to the SD card and power-cycle. Use the bootloader method, not DFU, so the bootloader stays intact.
 4. `M502` then `M500` to initialise EEPROM. Then re-apply any value from the backup that differs from the new config, and `M500`.
 
@@ -239,7 +303,10 @@ Do these steps with the tube's HV disconnected, or the PSU's laser switch off, u
    - Then `M3 S…` steps while watching the mA meter: find the ignition S and fit R2 for 16 mA at S255.
 7. **Interlock:** stop the water flow and confirm no laser at `M3 S255`.
 8. **Aux outputs:** `M8`/`M9` switch the air pump; `M10`/`M11` switch the exhaust.
-9. **Motion:** a square at low power with inline `G1 … S…`, then a small LightBurn job.
+9. **Motion:**
+   - Send `M3 I`, then a square at low power with `G1 … S…`, then `M5 I`.
+   - Confirm the laser stops within 1 s if motion stalls (`LASER_SAFETY_TIMEOUT_MS`).
+   - Then run a small LightBurn job.
 10. **Diode harness:**
     - Repeat 1–5 on the TTL output: low at boot, idle and reset; follows PWM when enabled.
     - Confirm the module responds properly at 20 kHz (power should scale with S).
@@ -262,8 +329,8 @@ Do these steps with the tube's HV disconnected, or the PSU's laser switch off, u
 ## 7. Work order
 
 1. Back up the current firmware settings (`M503`).
-2. Port the config to Marlin 2.1.x, build, flash, and verify the machine works as before.
-3. Add the laser config (§3.2), build and flash.
+2. Download upstream Marlin 2.1.2.8 into `Firmware/Marlin-2.1.2.8/`. Port the config (§3.1), build `STM32F446ZE_btt`, flash, and verify the machine works as before.
+3. Apply the fan-pin `#ifndef` patch, add the laser config (§3.2), build and flash.
 4. Build the CO2 harness (R1, R2 site, connector), remove the FAN1/FAN2 jumpers, install the mA meter.
 5. Run §5 steps 1–9 for the CO2.
 6. Wire the air-assist and exhaust relays/SSRs on FAN4/FAN5.
