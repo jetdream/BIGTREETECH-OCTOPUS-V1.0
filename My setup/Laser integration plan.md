@@ -181,26 +181,48 @@ Put it next to the old firmware: `Firmware/Marlin-2.1.2.8/`. The old `Marlin-bug
 
 **Settings to carry over** (option names may differ slightly in 2.1; the build's sanity checks flag renamed options):
 
+Settings were taken from a diff of the 2.0 fork's config against **untouched upstream `bugfix-2.0.x` of 2021-07-07**, so BTT's own changes are included too. **Done (2026-10-12)**, as ported:
+
 - **`Configuration.h`**
-  - board `BTT_OCTOPUS_V1_0`, `SERIAL_PORT 1`, no USB `SERIAL_PORT_2`
-  - Y2 pins on MOTOR 3 (see table)
-  - 1 extruder, TEMP_SENSOR_0 = 1, others 0, `BED_MAXTEMP 100`
-  - PID 19.00 / 1.29 / 70.09, `EXTRUDE_MAXLENGTH 120`
-  - TMC5160 on X, Y, Y2, Z, E0; `ENDSTOP_NOISE_THRESHOLD 3`
-  - steps 400/400/400/400, feedrate 133/50/50/100, accel 700/700/100/10000, default accels 700 / 10000 / 700
-  - direction inversions: Y false, Z true, E0 true
-  - `Z_MAX_POS 100`, homing 10 mm/s on all axes
-  - preheat fan 255, no LCD feedback beep
-  - FYSETC_MINI_12864_2_1 display with NeoPixel (NEO_GRB, 3 px, brightness 255)
-  - `FAST_PWM_FAN`
+  - **Board and serial:**
+    - board `BTT_OCTOPUS_V1_0`; author string updated;
+    - `SERIAL_PORT 1` (UART header), **`SERIAL_PORT_2 -1` (USB virtual COM, enabled)**, `BAUDRATE 115200`.
+  - **Steppers:**
+    - TMC5160 on X, Y, Y2, Z, E0; Y2 pins on MOTOR 3 (`PG4/PC1/PA0/PC7`);
+    - steps 400/400/400/400, max feedrate 133/50/50/100, max accel 700/700/100/10000;
+    - accels 700 (print) / 10000 (retract) / 700 (travel), `S_CURVE_ACCELERATION`;
+    - `ENDSTOP_NOISE_THRESHOLD 3`.
+  - **Motion and machine:**
+    - direction inversions: Y false, Z true, E0 true;
+    - bed 235 × 235, `Z_MAX_POS 100`, homing 10 mm/s on all axes;
+    - no probe: `Z_MIN_PROBE_USES_Z_MIN_ENDSTOP_PIN` off, `NOZZLE_TO_PROBE_OFFSET {0,0,0}`.
+  - **Hotend and bed:**
+    - 1 extruder; `TEMP_SENSOR_0 1`, `TEMP_SENSOR_BED 1`; `BED_MAXTEMP 100`;
+    - PID `DEFAULT_KP/KI/KD` 19.00 / 1.29 / 70.09 (2.1 uses upper-case names);
+    - `EXTRUDE_MAXLENGTH 120`; preheat fan 255.
+  - **Storage and UI:**
+    - `EEPROM_SETTINGS`, `SDSUPPORT`, `SPEAKER` with LCD feedback duration 0 / 1000 Hz;
+    - `FYSETC_MINI_12864_2_1`. Contrast now defaults to 255 for this panel in 2.1, so the old code patch is not needed.
+  - **Display backlight:** `NEOPIXEL_LED`, **`NEO_RGB`**, 3 px, brightness 255.
+    - 2.1 refuses anything but `NEO_RGB` for this panel.
+    - 2.0 silently forced `NEO_RGB` too, so the fork's `NEO_GRB` never took effect; colours are unchanged.
 - **`Configuration_adv.h`**
-  - controller fan on FAN3 (speed 70, idle 3 s, editable/menu)
-  - `FAST_PWM_FAN_FREQUENCY 78100`, E0 auto-fan on PA8
-  - `Y_DUAL_STEPPER_DRIVERS`, `QUICK_HOME`
-  - TMC: 1200 mA on X/Y/Y2/Z, 800 mA on E0, Rsense 0.075, 16 microsteps, Y2 interpolate
-  - spreadCycle on XY, `CHOPPER_DEFAULT_24V`
-  - `DIRECT_PIN_CONTROL`, `PINS_DEBUGGING`
-- **Pins file:** see the table above. The only remaining patch is the fan-pin change in §3.2.
+  - **Fans:**
+    - controller fan on FAN3 (speed 70, idle 3 s, M710 editable); E0 auto-fan on PA8;
+    - `FAST_PWM_FAN` at **25 kHz**. The fork's 78100 no longer fits: 2.1's STM32 HAL takes a 16-bit frequency, and 78100 would wrap to about 12.6 kHz, which is audible.
+  - **Motion:** `QUICK_HOME`. `Y_DUAL_STEPPER_DRIVERS` no longer exists; Y2 comes from `Y2_DRIVER_TYPE`.
+  - **TMC:**
+    - 1200 mA on X/Y/Y2/Z, 800 mA on E0, Rsense 0.075, 16 µsteps (`UNIFIED_MICROSTEPS`/`TMC5160_RSENSE` helpers kept);
+    - Y2 interpolate; spreadCycle on XY; `CHOPPER_DEFAULT_24V`; `TMC_DEBUG`.
+  - **LED menu:** `LED_CONTROL_MENU`, which 2.0 enabled automatically for this panel and 2.1 does not.
+  - **Debug:** `DIRECT_PIN_CONTROL`, `PINS_DEBUGGING`.
+  - **Not carried over:** `MICROSTEP_MODES {256…}`. It only applies to boards with MS pins (none on the Octopus), and 256 is outside its 1–16 range.
+- **`platformio.ini`:** `default_envs = STM32F446ZE_btt`.
+- **Pins file:** see the table above. The only patch is the fan-pin change in §3.2.
+
+**Build warnings:**
+- *"Motherboard DIAG jumpers must be removed when SENSORLESS_HOMING is disabled."* **Check that no DIAG jumpers are fitted** on the X/Y/Z/E0 driver sockets. With them fitted, the TMC DIAG outputs fight the physical endstop switches.
+- Two FYSETC panel "works best with `LED_USER_PRESET_STARTUP`" warnings. That option was also off in 2.0, so behaviour is unchanged.
 
 Bring the machine up as a printer/mill on 2.1.2.8 first (homing, moves, extruder, temps) **before** enabling the laser.
 
@@ -282,10 +304,30 @@ Bring the machine up as a printer/mill on 2.1.2.8 first (homing, moves, extruder
 
 ## 4. Build and flash
 
-1. Before flashing, connect to the current firmware and send `M503`. Save the output to `My setup/M503 backup <date>.txt` (D11).
-2. Build env **`STM32F446ZE_btt`** in PlatformIO. Set `default_envs` in `platformio.ini`; the old `BIGTREE_OCTOPUS_V1` name is gone in 2.1.
-3. Copy `firmware.bin` to the SD card and power-cycle. Use the bootloader method, not DFU, so the bootloader stays intact.
+**Built binaries** (2026-10-12, env `STM32F446ZE_btt`, in git-ignored `Firmware/Marlin-2.1.2.8/.pio/out/`):
+
+| File | Content | Use |
+|---|---|---|
+| `firmware-2.1.2.8-machine-only.bin` | §3.1 port only; FAN1/2/4/5 are still M106 fans | First flash: verify the machine works as before |
+| `firmware-2.1.2.8-laser.bin` | §3.1 + §3.2 (laser, air assist, extraction) | After the machine-only build checks out |
+
+`laser.bin` is also the current `.pio/build/STM32F446ZE_btt/firmware.bin`.
+
+The laser build has **no `M106`/`M107`** (`FAN_COUNT 0`): every fan port is either the hotend auto-fan, the controller fan, or a laser/air output. Slicer `M106` lines are just reported as unknown commands.
+
+The resolved configuration was checked with a preprocessor dump of the real build flags:
+- laser PWM `PE5` inverted at 20 kHz; laser enable `PD12`, active HIGH;
+- air assist `PD14` and extraction `PD15`, both active HIGH;
+- `FAN1/2/4/5_PIN -1`; Y2 on `PG4/PC1/PA0/PC7`; `STEP_TIMER 8`.
+
+**Rollback:** the 2.0 fork no longer builds with the current PlatformIO 6.2 (its 2021 dependency script reinstalls libraries on every run and then fails to find them). Before copying the new file, **look for `FIRMWARE.CUR` on the SD card you last flashed with and copy it to the PC**. The bootloader renames each flashed `firmware.bin` to `FIRMWARE.CUR`, so it is the image currently on the board.
+
+**Steps:**
+1. Copy `FIRMWARE.CUR` off the SD card (rollback image).
+2. Connect to the current firmware and send `M503`. Save the output to `My setup/M503 backup <date>.txt` (D11).
+3. Copy the chosen `.bin` to the SD card root **as `firmware.bin`** and power-cycle. Use the bootloader method, not DFU, so the bootloader stays intact.
 4. `M502` then `M500` to initialise EEPROM. Then re-apply any value from the backup that differs from the new config, and `M500`.
+5. Rebuilding: `pio run -d Firmware/Marlin-2.1.2.8 -e STM32F446ZE_btt`, or the PlatformIO IDE with that folder open.
 
 ---
 
@@ -328,11 +370,13 @@ Do these steps with the tube's HV disconnected, or the PSU's laser switch off, u
 
 ## 7. Work order
 
-1. Back up the current firmware settings (`M503`).
-2. Download upstream Marlin 2.1.2.8 into `Firmware/Marlin-2.1.2.8/`. Port the config (§3.1), build `STM32F446ZE_btt`, flash, and verify the machine works as before.
-3. Apply the fan-pin `#ifndef` patch, add the laser config (§3.2), build and flash.
-4. Build the CO2 harness (R1, R2 site, connector), remove the FAN1/FAN2 jumpers, install the mA meter.
-5. Run §5 steps 1–9 for the CO2.
-6. Wire the air-assist and exhaust relays/SSRs on FAN4/FAN5.
-7. Build the diode adapter + harness; run §5 step 10.
-8. Set up the LightBurn device profiles (CO2, diode).
+1. ~~Download upstream Marlin 2.1.2.8 into `Firmware/Marlin-2.1.2.8/` and port the config (§3.1).~~ **Done, built.**
+2. ~~Apply the fan-pin `#ifndef` patch and add the laser config (§3.2).~~ **Done, built.**
+3. Check that the DIAG jumpers are removed. Save `FIRMWARE.CUR` from the SD card and back up `M503` (§4).
+4. Flash `firmware-2.1.2.8-machine-only.bin` and verify homing, moves, extruder, temps and display.
+5. Flash `firmware-2.1.2.8-laser.bin`. Re-check the machine, then check `M3`/`M5`/`M8`/`M10` on the FAN ports with a meter before connecting anything.
+6. Build the CO2 harness (R1, R2 site, connector), remove the FAN1/FAN2 jumpers, install the mA meter.
+7. Run §5 steps 1–9 for the CO2.
+8. Wire the air-assist and exhaust relays/SSRs on FAN4/FAN5.
+9. Build the diode adapter + harness; run §5 step 10.
+10. Set up the LightBurn device profiles (CO2, diode).

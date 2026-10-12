@@ -248,12 +248,24 @@
 #define HEATER_2_PIN                        PB10  // Heater2
 #define HEATER_3_PIN                        PB11  // Heater3
 
-#define FAN0_PIN                            PA8   // Fan0
-#define FAN1_PIN                            PE5   // Fan1
-#define FAN2_PIN                            PD12  // Fan2
-#define FAN3_PIN                            PD13  // Fan3
-#define FAN4_PIN                            PD14  // Fan4
-#define FAN5_PIN                            PD15  // Fan5
+#ifndef FAN0_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN0_PIN                          PA8   // Fan0
+#endif
+#ifndef FAN1_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN1_PIN                          PE5   // Fan1
+#endif
+#ifndef FAN2_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN2_PIN                          PD12  // Fan2
+#endif
+#ifndef FAN3_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN3_PIN                          PD13  // Fan3
+#endif
+#ifndef FAN4_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN4_PIN                          PD14  // Fan4
+#endif
+#ifndef FAN5_PIN  // PS: overridable so the config can release fan ports (laser, air)
+  #define FAN5_PIN                          PD15  // Fan5
+#endif
 
 //
 // SD Support
